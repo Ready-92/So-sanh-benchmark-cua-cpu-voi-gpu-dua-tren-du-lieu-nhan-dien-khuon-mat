@@ -1,0 +1,3 @@
+input,path,device,median_ms,p95_ms,throughput_fps
+grayscale,.\data\benchmark\gray\0.jpg,cpu,1.667,1.935,583.527
+color,E:\ttss\data\benchmark\color\1787208972081_1400025893745852164_g6068070637985194847_887552051926f2595ed7d6380c2d295e.jpg,cpu,1.623,1.901,605.954
