@@ -283,7 +283,15 @@ Kết quả gốc nằm trong `benchmark_results_cuda.csv`.
 - FC1, FC2 và argmax.
 - In logits và class index của ảnh đầu tiên trong `val_images.bin`.
 
-Để biên dịch và chạy cần cài CUDA Toolkit để có `nvcc`. Hiện máy benchmark đã có driver/CUDA runtime cho PyTorch nhưng chưa có `nvcc`, nên mã CUDA tự viết chưa được compile hoặc đối chiếu logits với PyTorch.
+Để biên dịch và chạy cần cài CUDA Toolkit để có `nvcc`. Máy hiện đã biên dịch và chạy được bằng CUDA 13.3 trên RTX 3060.
+
+Đã đối chiếu ảnh validation đầu tiên giữa CUDA tự viết và PyTorch:
+
+- CUDA logits: `4.33733654, -3.35250473`
+- PyTorch logits: `4.33733416, -3.35250378`
+- Sai số tuyệt đối lớn nhất: `2.38e-06`
+- Dự đoán cả hai: class `0` (`student_01`)
+- Kết quả: `PASS` với ngưỡng sai số `1e-3`
 
 ## 9. Hướng phát triển tiếp theo
 
@@ -365,4 +373,45 @@ Benchmark model moi tren RTX 3060, 20 warm-up va 100 iterations:
 
 Benchmark theo batch size `1, 4, 8, 16, 32, 64, 128` duoc luu trong `benchmark_results_batch_clean_model_i5_14400f_rtx3060.csv`.
 
-CUDA tu viet da co ban inference mot anh; may hien tai chua co `nvcc` nen chua the bien dich va doi chieu logits voi PyTorch.
+CUDA tu viet da co ban inference mot anh va da duoc doi chieu logits thanh cong voi PyTorch.
+
+### 13.1 Benchmark cuoi voi CUDA 13.3
+
+Sau khi cap nhat CUDA Toolkit 13.3 va NVIDIA driver 610.88, benchmark lai voi 20 warm-up va 100 iterations:
+
+| Input | Device | Median | P95 | Throughput |
+|---|---|---:|---:|---:|
+| Grayscale | CPU i5-14400F | 0.850 ms | 1.084 ms | 1156.037 FPS |
+| Grayscale | RTX 3060 | 0.365 ms | 0.738 ms | 2340.397 FPS |
+| Color -> grayscale | CPU i5-14400F | 0.928 ms | 1.315 ms | 1058.537 FPS |
+| Color -> grayscale | RTX 3060 | 0.791 ms | 0.992 ms | 1400.811 FPS |
+
+Ket qua luu trong `benchmark_results_cuda133_driver610_final.csv`. CUDA inference va PyTorch cung cho ket qua class `0` voi sai so logits toi da `2.38e-06`.
+
+### 13.2 Benchmark CUDA tu viet theo L0, L1, L2
+
+Da chay 20 warm-up va 100 iterations tren RTX 3060. Ket qua luu trong `benchmark_cuda_levels.csv`:
+
+| Muc do | Pham vi do | Median | P95 | Throughput |
+|---|---|---:|---:|---:|
+| L0 | Kernel-only, do tung kernel | 1.3461 ms | 2.1807 ms | 742.889 FPS |
+| L1 | Toan bo inference khi input/weights da o GPU | 1.2411 ms | 2.0931 ms | 805.745 FPS |
+| L2 | H2D + inference + D2H | 1.2878 ms | 2.3067 ms | 776.533 FPS |
+
+L0 co them overhead event va synchronize giua tung kernel de tach rieng thoi gian cac kernel; L1 phu hop hon de dai dien thoi gian inference tren GPU. L2 cho thay chi phi truyen input va logits trong bai do nay.
+
+### 13.3 Benchmark toan bo pipeline webcam L3
+
+Script `benchmark_pipeline.py` do capture, Haar Cascade, crop/preprocess, inference va tong thoi gian moi frame. Chay tren GPU:
+
+```powershell
+.\.venv\Scripts\python.exe benchmark_pipeline.py --device cuda --seconds 10
+```
+
+Chay tren CPU:
+
+```powershell
+.\.venv\Scripts\python.exe benchmark_pipeline.py --device cpu --seconds 10
+```
+
+Ket qua duoc luu vao `benchmark_pipeline_results.csv` hoac ten file truyen qua `--csv`. Lan chay trong moi truong phat trien khong co webcam index 0 nen chua thu duoc so do L3 thuc te.

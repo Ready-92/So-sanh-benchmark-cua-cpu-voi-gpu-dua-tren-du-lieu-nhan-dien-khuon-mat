@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <vector>
 
 static void check_cuda(cudaError_t status, const char* operation) {
@@ -128,6 +129,124 @@ static void linear(
     launch_check("linear_kernel");
 }
 
+struct DeviceBuffers {
+    float* input;
+    float* conv1;
+    float* pool1;
+    float* conv2;
+    float* pool2;
+    float* conv3;
+    float* pool3;
+    float* fc1;
+    float* logits;
+};
+
+static void run_inference(const DeviceBuffers& buffers, float** weights) {
+    conv2d(buffers.input, weights[0], weights[1], buffers.conv1, 1, 32, 64, 64);
+    maxpool2x2(buffers.conv1, buffers.pool1, 32, 64, 64);
+    conv2d(buffers.pool1, weights[2], weights[3], buffers.conv2, 32, 64, 32, 32);
+    maxpool2x2(buffers.conv2, buffers.pool2, 64, 32, 32);
+    conv2d(buffers.pool2, weights[4], weights[5], buffers.conv3, 64, 128, 16, 16);
+    maxpool2x2(buffers.conv3, buffers.pool3, 128, 16, 16);
+    linear(buffers.pool3, weights[6], weights[7], buffers.fc1, 8192, 256, true);
+    linear(buffers.fc1, weights[8], weights[9], buffers.logits, 256, 2, false);
+}
+
+static float percentile_ms(std::vector<float> values, float percentile) {
+    std::sort(values.begin(), values.end());
+    float position = (values.size() - 1) * percentile;
+    size_t lower = static_cast<size_t>(position);
+    size_t upper = std::min(lower + 1, values.size() - 1);
+    float fraction = position - lower;
+    return values[lower] + fraction * (values[upper] - values[lower]);
+}
+
+static float elapsed_event(cudaEvent_t start, cudaEvent_t stop) {
+    float milliseconds = 0.0f;
+    check_cuda(cudaEventElapsedTime(&milliseconds, start, stop), "cudaEventElapsedTime");
+    return milliseconds;
+}
+
+static float run_inference_kernel_timing(const DeviceBuffers& buffers, float** weights) {
+    cudaEvent_t start, stop;
+    check_cuda(cudaEventCreate(&start), "cudaEventCreate kernel start");
+    check_cuda(cudaEventCreate(&stop), "cudaEventCreate kernel stop");
+    float total = 0.0f;
+    auto measure = [&](auto launch) {
+        check_cuda(cudaEventRecord(start), "cudaEventRecord kernel start");
+        launch();
+        check_cuda(cudaEventRecord(stop), "cudaEventRecord kernel stop");
+        check_cuda(cudaEventSynchronize(stop), "cudaEventSynchronize kernel stop");
+        total += elapsed_event(start, stop);
+    };
+    measure([&] { conv2d(buffers.input, weights[0], weights[1], buffers.conv1, 1, 32, 64, 64); });
+    measure([&] { maxpool2x2(buffers.conv1, buffers.pool1, 32, 64, 64); });
+    measure([&] { conv2d(buffers.pool1, weights[2], weights[3], buffers.conv2, 32, 64, 32, 32); });
+    measure([&] { maxpool2x2(buffers.conv2, buffers.pool2, 64, 32, 32); });
+    measure([&] { conv2d(buffers.pool2, weights[4], weights[5], buffers.conv3, 64, 128, 16, 16); });
+    measure([&] { maxpool2x2(buffers.conv3, buffers.pool3, 128, 16, 16); });
+    measure([&] { linear(buffers.pool3, weights[6], weights[7], buffers.fc1, 8192, 256, true); });
+    measure([&] { linear(buffers.fc1, weights[8], weights[9], buffers.logits, 256, 2, false); });
+    check_cuda(cudaEventDestroy(start), "cudaEventDestroy kernel start");
+    check_cuda(cudaEventDestroy(stop), "cudaEventDestroy kernel stop");
+    return total;
+}
+
+static void benchmark_level(
+    const char* level, const DeviceBuffers& buffers, float** weights,
+    const float* host_input, float* host_logits, int warmup, int iterations
+) {
+    cudaEvent_t start, stop;
+    check_cuda(cudaEventCreate(&start), "cudaEventCreate start");
+    check_cuda(cudaEventCreate(&stop), "cudaEventCreate stop");
+
+    for (int index = 0; index < warmup; ++index) {
+        if (level[1] == '2') {
+            check_cuda(cudaMemcpy(buffers.input, host_input, 64 * 64 * sizeof(float), cudaMemcpyHostToDevice), "warmup H2D");
+        }
+        if (level[1] == '0') {
+            run_inference_kernel_timing(buffers, weights);
+        } else {
+            run_inference(buffers, weights);
+        }
+        if (level[1] == '2') {
+            check_cuda(cudaMemcpy(host_logits, buffers.logits, 2 * sizeof(float), cudaMemcpyDeviceToHost), "warmup D2H");
+        }
+    }
+    check_cuda(cudaDeviceSynchronize(), "warmup synchronize");
+
+    std::vector<float> timings;
+    timings.reserve(iterations);
+    for (int index = 0; index < iterations; ++index) {
+        check_cuda(cudaEventRecord(start), "cudaEventRecord start");
+        if (level[1] == '2') {
+            check_cuda(cudaMemcpy(buffers.input, host_input, 64 * 64 * sizeof(float), cudaMemcpyHostToDevice), "H2D");
+        }
+        float kernel_time = 0.0f;
+        if (level[1] == '0') {
+            kernel_time = run_inference_kernel_timing(buffers, weights);
+        } else {
+            run_inference(buffers, weights);
+        }
+        if (level[1] == '2') {
+            check_cuda(cudaMemcpy(host_logits, buffers.logits, 2 * sizeof(float), cudaMemcpyDeviceToHost), "D2H");
+        }
+        if (level[1] == '0') {
+            timings.push_back(kernel_time);
+        } else {
+            check_cuda(cudaEventRecord(stop), "cudaEventRecord stop");
+            check_cuda(cudaEventSynchronize(stop), "cudaEventSynchronize stop");
+            timings.push_back(elapsed_event(start, stop));
+        }
+    }
+
+    float median = percentile_ms(timings, 0.50f);
+    float p95 = percentile_ms(timings, 0.95f);
+    printf("%s | median=%.4f ms | p95=%.4f ms | FPS=%.3f\n", level, median, p95, 1000.0f / median);
+    check_cuda(cudaEventDestroy(start), "cudaEventDestroy start");
+    check_cuda(cudaEventDestroy(stop), "cudaEventDestroy stop");
+}
+
 int main() {
     const int image_size = 64;
     const int classes = 2;
@@ -155,7 +274,6 @@ int main() {
         free(host_weights[index]);
     }
     copy_to_device(&device_input, host_input, image_size * image_size);
-    free(host_input);
 
     float *conv1 = nullptr, *pool1 = nullptr, *conv2 = nullptr, *pool2 = nullptr;
     float *conv3 = nullptr, *pool3 = nullptr, *fc1 = nullptr, *logits = nullptr;
@@ -168,14 +286,10 @@ int main() {
     check_cuda(cudaMalloc(&fc1, 256 * sizeof(float)), "cudaMalloc fc1");
     check_cuda(cudaMalloc(&logits, classes * sizeof(float)), "cudaMalloc logits");
 
-    conv2d(device_input, device_weights[0], device_weights[1], conv1, 1, 32, 64, 64);
-    maxpool2x2(conv1, pool1, 32, 64, 64);
-    conv2d(pool1, device_weights[2], device_weights[3], conv2, 32, 64, 32, 32);
-    maxpool2x2(conv2, pool2, 64, 32, 32);
-    conv2d(pool2, device_weights[4], device_weights[5], conv3, 64, 128, 16, 16);
-    maxpool2x2(conv3, pool3, 128, 16, 16);
-    linear(pool3, device_weights[6], device_weights[7], fc1, 8192, 256, true);
-    linear(fc1, device_weights[8], device_weights[9], logits, 256, classes, false);
+    DeviceBuffers buffers = {
+        device_input, conv1, pool1, conv2, pool2, conv3, pool3, fc1, logits
+    };
+    run_inference(buffers, device_weights);
 
     float host_logits[classes];
     check_cuda(cudaMemcpy(host_logits, logits, classes * sizeof(float), cudaMemcpyDeviceToHost), "cudaMemcpy logits D2H");
@@ -185,7 +299,15 @@ int main() {
     printf("CUDA inference hoan tat. Logits: %.8f %.8f\n", host_logits[0], host_logits[1]);
     printf("Predicted class index: %d\n", prediction);
 
+    printf("\nBenchmark CUDA (warmup=20, iterations=100):\n");
+    benchmark_level("L0 kernel-only", buffers, device_weights, host_input, host_logits, 20, 100);
+    benchmark_level("L1 device inference", buffers, device_weights, host_input, host_logits, 20, 100);
+    benchmark_level("L2 H2D+inference+D2H", buffers, device_weights, host_input, host_logits, 20, 100);
+
+    free(host_input);
     cudaFree(device_input);
     for (float* weight : device_weights) cudaFree(weight);
     cudaFree(conv1); cudaFree(pool1); cudaFree(conv2); cudaFree(pool2);
     cudaFree(conv3); cudaFree(pool3); cudaFree(fc1); cudaFree(logits);
+    return 0;
+}

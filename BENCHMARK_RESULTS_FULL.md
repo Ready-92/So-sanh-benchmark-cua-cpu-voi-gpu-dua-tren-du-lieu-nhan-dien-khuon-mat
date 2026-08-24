@@ -160,4 +160,55 @@ Benchmark model moi tren i5-14400F va RTX 3060:
 
 Benchmark batch voi model moi nam trong `benchmark_results_batch_clean_model_i5_14400f_rtx3060.csv`, gom batch size 1, 4, 8, 16, 32, 64 va 128.
 
-`inference_template.cu` da duoc trien khai Conv2D, ReLU, MaxPool, FC va argmax cho mot anh. Tuy nhien do `nvcc` chua co trong PATH, ma CUDA tu viet chua duoc bien dich hoac doi chieu logits voi PyTorch.
+`inference_template.cu` da duoc trien khai Conv2D, ReLU, MaxPool, FC va argmax cho mot anh. CUDA 13.3 da bien dich va chay thanh cong tren RTX 3060.
+
+Da doi chieu tu dong voi PyTorch tren anh validation dau tien:
+
+- CUDA logits: `4.33733654, -3.35250473`
+- PyTorch logits: `4.33733416, -3.35250378`
+- Sai so tuyet doi lon nhat: `2.38e-06`
+- CUDA va PyTorch cung du doan class `0` (`student_01`)
+- Ket qua: `PASS` voi nguong sai so `1e-3`
+
+## 14. Benchmark cuoi voi CUDA 13.3 va driver 610.88
+
+Ket qua duoc do lai sau khi cap nhat CUDA Toolkit 13.3 va NVIDIA driver 610.88, voi 20 warm-up va 100 iterations. Day la moc hieu nang moi nhat.
+
+| Dau vao | Thiet bi | Median (ms) | P95 (ms) | FPS |
+|---|---|---:|---:|---:|
+| Grayscale | i5-14400F / CPU | 0.850 | 1.084 | 1156.037 |
+| Grayscale | RTX 3060 / CUDA | 0.365 | 0.738 | 2340.397 |
+| Color | i5-14400F / CPU | 0.928 | 1.315 | 1058.537 |
+| Color | RTX 3060 / CUDA | 0.791 | 0.992 | 1400.811 |
+
+Du lieu day du nam trong `benchmark_results_cuda133_driver610_final.csv`.
+
+## 16. Benchmark toan bo pipeline webcam L3
+
+Da tao `benchmark_pipeline.py` de do cac thanh phan:
+
+- Capture frame tu webcam.
+- Haar Cascade face detection.
+- Crop va preprocess.
+- CNN inference tren CPU hoac CUDA.
+- Tong thoi gian moi frame va pipeline FPS.
+
+Lenh chay:
+
+```powershell
+.\.venv\Scripts\python.exe benchmark_pipeline.py --device cuda --seconds 10
+```
+
+Lan thu nghiem trong moi truong phat trien bao loi `Camera index out of range` voi webcam index 0, nen chua co so do L3. Can chay tren may co webcam hoat dong de ghi ket qua vao `benchmark_pipeline_results.csv`.
+
+## 15. Benchmark CUDA tu viet theo L0, L1, L2
+
+Da chay 20 warm-up va 100 iterations tren RTX 3060 sau khi bien dich bang CUDA 13.3. Du lieu luu trong `benchmark_cuda_levels.csv`.
+
+| Muc do | Pham vi do | Median (ms) | P95 (ms) | FPS |
+|---|---|---:|---:|---:|
+| L0 | Kernel-only, do tung kernel | 1.3461 | 2.1807 | 742.889 |
+| L1 | Device inference end-to-end | 1.2411 | 2.0931 | 805.745 |
+| L2 | H2D + inference + D2H | 1.2878 | 2.3067 | 776.533 |
+
+L0 tach thoi gian tung kernel nhung co overhead event va synchronize giua cac kernel. L1 la chi so device inference end-to-end phu hop hon de so sanh pipeline CUDA; L2 bo sung chi phi upload input va download logits.

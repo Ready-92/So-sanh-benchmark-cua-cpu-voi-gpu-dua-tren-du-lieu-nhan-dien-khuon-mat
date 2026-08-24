@@ -1,0 +1,4 @@
+level,scope,warmup,iterations,median_ms,p95_ms,throughput_fps,notes
+L0,kernel-only with per-kernel CUDA events,20,100,1.3461,2.1807,742.889,Includes event and synchronization overhead between individual kernels
+L1,device inference end-to-end,20,100,1.2411,2.0931,805.745,Input and weights already resident on GPU
+L2,H2D plus device inference plus D2H,20,100,1.2878,2.3067,776.533,Includes input upload and logits download
