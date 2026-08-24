@@ -13,10 +13,10 @@ result = subprocess.run(
     capture_output=True,
     text=True,
 )
-match = re.search(r"Logits: ([^ ]+) ([^\n]+)", result.stdout)
+match = re.search(r"Logits:([^\n]+)", result.stdout)
 if not match:
     raise RuntimeError(f"Khong tim thay logits trong output CUDA:\n{result.stdout}")
-cuda_logits = np.array([float(match.group(1)), float(match.group(2))], dtype=np.float32)
+cuda_logits = np.fromstring(match.group(1), sep=" ", dtype=np.float32)
 
 with open("label_names.txt", encoding="utf-8") as file:
     label_names = [line.strip() for line in file if line.strip()]
@@ -27,6 +27,11 @@ model.eval()
 images = np.fromfile("output/val_images.bin", dtype=np.float32).reshape(-1, 1, 64, 64)
 with torch.inference_mode():
     pytorch_logits = model(torch.from_numpy(images[:1])).numpy()[0]
+
+if cuda_logits.shape != pytorch_logits.shape:
+    raise RuntimeError(
+        f"So logits khong khop: CUDA={cuda_logits.size}, PyTorch={pytorch_logits.size}"
+    )
 
 max_abs_error = np.max(np.abs(cuda_logits - pytorch_logits))
 cuda_prediction = int(np.argmax(cuda_logits))
