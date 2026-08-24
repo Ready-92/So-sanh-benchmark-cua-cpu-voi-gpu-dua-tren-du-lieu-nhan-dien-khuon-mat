@@ -274,21 +274,16 @@ Kết quả gốc nằm trong `benchmark_results_cuda.csv`.
 
 ## 8. CUDA hiện tại
 
-`inference_template.cu` hiện mới là khung đọc:
+`inference_template.cu` hiện đã có bản triển khai inference một ảnh:
 
-- Trọng số Conv1.
-- Bias Conv1.
-- Một ảnh mẫu từ `val_images.bin`.
-
-Phần chưa hoàn thành:
-
-- Kernel Conv2D đầy đủ.
-- ReLU và MaxPool.
+- Đọc toàn bộ trọng số từ thư mục `output/`.
+- Kernel Conv2D padding 1 kèm ReLU.
 - Ba tầng convolution nối tiếp.
+- MaxPool 2x2 sau mỗi tầng convolution.
 - FC1, FC2 và argmax.
-- Batch inference.
-- CUDA events và benchmark L0/L1/L2.
-- So sánh logits/nhãn CUDA với PyTorch.
+- In logits và class index của ảnh đầu tiên trong `val_images.bin`.
+
+Để biên dịch và chạy cần cài CUDA Toolkit để có `nvcc`. Hiện máy benchmark đã có driver/CUDA runtime cho PyTorch nhưng chưa có `nvcc`, nên mã CUDA tự viết chưa được compile hoặc đối chiếu logits với PyTorch.
 
 ## 9. Hướng phát triển tiếp theo
 
@@ -346,3 +341,28 @@ Một kết luận tốt cần trả lời các câu hỏi sau:
 6. Kết quả CPU, PyTorch GPU và CUDA tự viết có cùng nhãn không?
 
 Không được đánh giá speedup nếu logits hoặc nhãn dự đoán giữa các phiên bản không khớp trong sai số cho phép.
+
+## 13. Cap nhat tren may i5-14400F va RTX 3060
+
+Da sua preprocessing de chia anh goc truoc khi augmentation, tranh de cac bien the cua cung anh roi vao ca train va validation. Sau khi tao lai split:
+
+- Anh goc: 101
+- Train sau augmentation: 480
+- Validation doc lap, khong augmentation: 21
+- So lop: 2
+- Validation accuracy: 1.0000
+
+Accuracy nay van can dien giai than trong vi validation chi co 21 anh va du lieu moi co 2 hoc sinh.
+
+Benchmark model moi tren RTX 3060, 20 warm-up va 100 iterations:
+
+| Input | Device | Median | P95 | Throughput |
+|---|---|---:|---:|---:|
+| Grayscale | CPU i5-14400F | 0.740 ms | 0.971 ms | 1296.143 FPS |
+| Grayscale | RTX 3060 | 0.371 ms | 0.791 ms | 2220.964 FPS |
+| Color -> grayscale | CPU i5-14400F | 0.876 ms | 1.304 ms | 1089.841 FPS |
+| Color -> grayscale | RTX 3060 | 0.439 ms | 0.672 ms | 2152.908 FPS |
+
+Benchmark theo batch size `1, 4, 8, 16, 32, 64, 128` duoc luu trong `benchmark_results_batch_clean_model_i5_14400f_rtx3060.csv`.
+
+CUDA tu viet da co ban inference mot anh; may hien tai chua co `nvcc` nen chua the bien dich va doi chieu logits voi PyTorch.

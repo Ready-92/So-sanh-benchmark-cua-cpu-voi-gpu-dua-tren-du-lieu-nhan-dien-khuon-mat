@@ -61,7 +61,14 @@ def main():
         description="So sanh benchmark CNN cho anh grayscale va anh mau tren CPU/GPU."
     )
     parser.add_argument("--gray-image", default="data/student_01/0.jpg")
-    parser.add_argument("--color-image", default="data/student_2/0.jpg")
+    parser.add_argument(
+        "--color-image",
+        default=(
+            "data/student_2/"
+            "1787208972081_1400025893745852164_g6068070637985194847_"
+            "887552051926f2595ed7d6380c2d295e.jpg"
+        ),
+    )
     parser.add_argument("--model", default="face_cnn.pth")
     parser.add_argument("--labels", default="label_names.txt")
     parser.add_argument("--warmup", type=int, default=20)

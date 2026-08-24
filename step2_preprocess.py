@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from face_utils import preprocess_face, augment_face
 
-def load_dataset(dataset_dir='dataset', size=64, use_augmentation=True):
+def load_dataset(dataset_dir='data', size=64, use_augmentation=True):
     images, labels, label_names = [], [], []
 
     # Lỗi #3: chỉ lấy các mục là THƯ MỤC, bỏ qua file lẻ nằm lẫn trong dataset/
@@ -49,14 +49,52 @@ def load_dataset(dataset_dir='dataset', size=64, use_augmentation=True):
 
     return np.array(images), np.array(labels), label_names
 
-if __name__ == '__main__':
-    X, y, label_names = load_dataset(use_augmentation=True)
-    print("Tong so anh (sau augmentation):", X.shape)
-    print("So hoc sinh:", len(label_names))
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
+def load_image_paths(dataset_dir='data'):
+    image_paths, labels, label_names = [], [], []
+    student_dirs = sorted([
+        d for d in os.listdir(dataset_dir)
+        if os.path.isdir(os.path.join(dataset_dir, d))
+    ])
+
+    for student in student_dirs:
+        paths = glob.glob(f'{dataset_dir}/{student}/*.jpg')
+        if not paths:
+            continue
+        label_names.append(student)
+        label = len(label_names) - 1
+        image_paths.extend(paths)
+        labels.extend([label] * len(paths))
+
+    if not image_paths:
+        raise RuntimeError(f"Khong tim thay anh nao trong '{dataset_dir}'")
+    return image_paths, np.array(labels), label_names
+
+
+def preprocess_split(image_paths, labels, size=64, use_augmentation=False):
+    images, output_labels = [], []
+    for image_path, label in zip(image_paths, labels):
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            continue
+        variants = augment_face(image) if use_augmentation else [image]
+        for variant in variants:
+            images.append(preprocess_face(variant, size))
+            output_labels.append(label)
+    return np.array(images), np.array(output_labels)
+
+if __name__ == '__main__':
+    image_paths, y, label_names = load_image_paths()
+    train_paths, val_paths, y_train_source, y_val_source = train_test_split(
+        image_paths, y, test_size=0.2, stratify=y, random_state=42
     )
+    X_train, y_train = preprocess_split(
+        train_paths, y_train_source, use_augmentation=True
+    )
+    X_val, y_val = preprocess_split(val_paths, y_val_source)
+    print("Anh goc:", len(image_paths), "Train sau augmentation:", X_train.shape)
+    print("Validation khong augmentation:", X_val.shape)
+    print("So hoc sinh:", len(label_names))
     print("Train:", X_train.shape, "Val:", X_val.shape)
 
     np.save('X_train.npy', X_train)
