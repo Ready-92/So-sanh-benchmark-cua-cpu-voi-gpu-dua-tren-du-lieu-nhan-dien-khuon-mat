@@ -228,6 +228,12 @@ Script tạo thư mục `output/` với:
 
 CNN chạy trên từng khuôn mặt được Haar Cascade phát hiện. Nếu confidence thấp hơn threshold, kết quả hiển thị là `Unknown`.
 
+Demo cung cap them log nhan dien vao `recognition_log.csv`. Moi student duoc ghi toi da mot lan trong moi khoang thoi gian mac dinh 1 giay, gom timestamp, frame, confidence va toa do khuon mat. Co the doi file log va tan suat ghi:
+
+```powershell
+.\.venv\Scripts\python.exe step5_demo_video.py --threshold 0.6 --log recognition_log.csv --log-interval 1
+```
+
 ## 6. Benchmark CPU/GPU
 
 Script benchmark:
