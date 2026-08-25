@@ -291,13 +291,43 @@ Kết quả gốc nằm trong `benchmark_results_cuda.csv`.
 
 Để biên dịch và chạy cần cài CUDA Toolkit để có `nvcc`. Máy hiện đã biên dịch và chạy được bằng CUDA 13.3 trên RTX 3060.
 
-Đã đối chiếu ảnh validation đầu tiên giữa CUDA tự viết và PyTorch:
+Đã đối chiếu ảnh validation đầu tiên giữa CUDA tự viết và PyTorch (3 lớp):
 
-- CUDA logits: `4.33733654, -3.35250473`
-- PyTorch logits: `4.33733416, -3.35250378`
-- Sai số tuyệt đối lớn nhất: `2.38e-06`
-- Dự đoán cả hai: class `0` (`student_01`)
+- CUDA logits: `-4.29488516, -1.23510623, 4.86168146`
+- PyTorch logits: `-4.29488707, -1.23510671, 4.86168146`
+- Sai số tuyệt đối lớn nhất: `1.91e-06`
+- Dự đoán cả hai: class `2` (`student_3`)
 - Kết quả: `PASS` với ngưỡng sai số `1e-3`
+
+## 8.1. Đối chiếu 5 mục tiêu môn Máy tính song song
+
+| # | Mục tiêu | Triển khai | Bằng chứng |
+|---|---|---|---|
+| 1 | CUDA Convolution | `conv2d_kernel` (global memory) | L0/L1 trong benchmark CUDA |
+| 2 | Shared Memory | `conv2d_shared_kernel` tile `16x16` + halo | `benchmark_cuda_basic_optimized.csv` |
+| 3 | Thread/Block configuration | Sweep block `64..1024` trên Conv1 | `benchmark_cuda_thread_blocks.csv` |
+| 4 | Batch processing | `conv2d_batch_kernel` sweep batch `1..128` | `benchmark_cuda_batch.csv` |
+| 5 | Benchmark CPU vs Basic vs Optimized | PyTorch CPU/GPU + CUDA Basic/Optimized | CSV + báo cáo |
+
+Kết quả thread/block (Conv1, batch 1):
+
+- Block `256`: nhanh nhat ~`122070 FPS`.
+- Block `64/128`: gan bang.
+- Block `1024`: cham nhat ~`89670 FPS` do chia nho grid khong hieu qua voi kich thuoc nho.
+
+Kết quả CUDA batch (Conv1):
+
+- Batch `1`: `0.0113 ms/anh`.
+- Batch `128`: `0.0059 ms/anh`, throughput `~170765 FPS` (tang ~1.9x/anh so batch 1).
+- Per-image latency giam khi batch lon vi GPU tan dung song song tot hon.
+
+Kết quả benchmark device inference:
+
+- CUDA Basic: `1.2372 ms` (`808.298 FPS`).
+- CUDA Optimized shared-memory: `1.2830 ms` (`779.448 FPS`).
+- Hai phien ban cho logits trung khop (sai so `0`); trong model nho/batch 1, shared-memory cham hon nhe do overhead tile va `__syncthreads`, minh chung rang toi uu bo nho khong phai luc nao cung thang khi van de la launch overhead.
+
+So sanh voi CPU PyTorch (i5-14400F) va RTX 3060 trong `benchmark_results_cuda133_driver610_final.csv` cho thay GPU nhanh hon CPU ro rang.
 
 ## 9. Hướng phát triển tiếp theo
 

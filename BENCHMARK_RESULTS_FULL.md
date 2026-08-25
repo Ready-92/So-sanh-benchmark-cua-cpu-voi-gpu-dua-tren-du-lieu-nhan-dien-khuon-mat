@@ -212,3 +212,52 @@ Da chay 20 warm-up va 100 iterations tren RTX 3060 sau khi bien dich bang CUDA 1
 | L2 | H2D + inference + D2H | 1.2878 | 2.3067 | 776.533 |
 
 L0 tach thoi gian tung kernel nhung co overhead event va synchronize giua cac kernel. L1 la chi so device inference end-to-end phu hop hon de so sanh pipeline CUDA; L2 bo sung chi phi upload input va download logits.
+
+## 17. Nam muc tieu mon May tinh song song
+
+### 17.1 CUDA Convolution va Shared Memory
+
+- `conv2d_kernel`: convolution tren global memory.
+- `conv2d_shared_kernel`: tile `16x16` co halo padding, su dung shared memory va `__syncthreads`.
+- Hai phien ban cho logits trung khop hoan toan (max abs error = 0).
+
+Device inference:
+
+| Phien ban | Median (ms) | FPS |
+|---|---:|---:|
+| CUDA Basic | 1.2372 | 808.298 |
+| CUDA Optimized shared-memory | 1.2830 | 779.448 |
+
+### 17.2 Thread/Block configuration
+
+Sweep block size tren Conv1 (`benchmark_cuda_thread_blocks.csv`):
+
+| Block size | Median (ms) | FPS |
+|---:|---:|---:|
+| 64 | 0.0101 | 99206 |
+| 128 | 0.0100 | 100482 |
+| 256 | 0.0082 | 122070 |
+| 512 | 0.0091 | 109649 |
+| 1024 | 0.0112 | 89670 |
+
+Block 256 la toi uu nhat trong cau hinh nay.
+
+### 17.3 CUDA Batch processing
+
+Sweep batch size tren Conv1 (`benchmark_cuda_batch.csv`):
+
+| Batch | Median (ms) | Per-image (ms) | FPS |
+|---:|---:|---:|---:|
+| 1 | 0.0113 | 0.0113 | 88778 |
+| 4 | 0.0276 | 0.0069 | 144844 |
+| 16 | 0.0979 | 0.0061 | 163399 |
+| 64 | 0.3779 | 0.0059 | 169377 |
+| 128 | 0.7496 | 0.0059 | 170765 |
+
+Per-image latency giam ~1.9x tu batch 1 sang batch 128, cho thay GPU tan dung data parallelism tot hon khi batch lon.
+
+### 17.4 Benchmark CPU vs CUDA Basic vs CUDA Optimized
+
+- CPU PyTorch (i5-14400F): tham khao `benchmark_results_cuda133_driver610_final.csv`.
+- CUDA Basic vs CUDA Optimized: `benchmark_cuda_basic_optimized.csv`.
+- Doi chieu CUDA voi PyTorch: `compare_cuda_pytorch.py`, ket qua PASS voi sai so logits `1.9e-06` (3 lop, cung du doan `student_3`).
