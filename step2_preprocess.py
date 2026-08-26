@@ -4,7 +4,21 @@ import os
 import glob
 import numpy as np
 from sklearn.model_selection import train_test_split
-from face_utils import preprocess_face, augment_face
+from face_utils import preprocess_face, augment_face, face_cascade
+
+MAX_IMAGE_SIDE = 600
+
+
+def crop_face_if_large(image):
+    """Anh lon (anh canh goc) -> cat vung khuon mat; anh nho (da crop san) -> giu nguyen."""
+    h, w = image.shape[:2]
+    if max(h, w) <= MAX_IMAGE_SIDE:
+        return image
+    faces = face_cascade.detectMultiScale(image, scaleFactor=1.1, minNeighbors=5)
+    if len(faces) == 0:
+        return None
+    x, y, fw, fh = max(faces, key=lambda b: b[2] * b[3])
+    return image[y:y + fh, x:x + fw]
 
 def load_dataset(dataset_dir='data', size=64, use_augmentation=True):
     images, labels, label_names = [], [], []
@@ -33,6 +47,12 @@ def load_dataset(dataset_dir='data', size=64, use_augmentation=True):
             # Lỗi #3: kiểm tra ảnh đọc được hay không trước khi xử lý tiếp
             if img is None:
                 print(f"[Canh bao] Anh loi, bo qua: {img_path}")
+                skipped += 1
+                continue
+
+            img = crop_face_if_large(img)
+            if img is None:
+                print(f"[Canh bao] Anh lon khong tim thay khuon mat, bo qua: {img_path}")
                 skipped += 1
                 continue
 
@@ -75,6 +95,9 @@ def preprocess_split(image_paths, labels, size=64, use_augmentation=False):
     images, output_labels = [], []
     for image_path, label in zip(image_paths, labels):
         image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            continue
+        image = crop_face_if_large(image)
         if image is None:
             continue
         variants = augment_face(image) if use_augmentation else [image]

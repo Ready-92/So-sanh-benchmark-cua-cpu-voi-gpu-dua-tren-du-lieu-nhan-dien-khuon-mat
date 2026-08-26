@@ -42,11 +42,14 @@ if __name__ == '__main__':
     train_loader = to_loader(X_train, y_train)
     val_loader = to_loader(X_val, y_val, shuffle=False)
 
+    torch.manual_seed(42)
+    np.random.seed(42)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Dang chay tren:", device)
 
     model = FaceCNN(num_classes=num_classes).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
 
     best_val_acc = 0.0

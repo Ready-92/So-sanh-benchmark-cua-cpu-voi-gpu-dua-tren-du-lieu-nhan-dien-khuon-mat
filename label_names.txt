@@ -1,3 +1,2 @@
-student_01
 student_2
 student_3
